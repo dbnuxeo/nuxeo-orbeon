@@ -68,7 +68,7 @@ public class OrbeonResource extends DefaultObject {
                 if (formDoc == null) {
                     return;
                 }
-                orbeonData = mapNuxeoDocumentToOrbeonData(formDoc, file);
+                orbeonData = mapNuxeoDocumentToOrbeonData(formDoc, id, file);
                 session.save();
             }
         }
@@ -94,7 +94,8 @@ public class OrbeonResource extends DefaultObject {
     @PUT
     @Path("crud/{app}/{form}/{state}/{id}/{file}")
     public Response createUpdateFormData(@PathParam("app") String app, @PathParam("form") String form,
-            @PathParam("state") String state, @PathParam("id") String id, @PathParam("file") String file) throws Exception {
+            @PathParam("state") String state, @PathParam("id") String id, @PathParam("file") String file)
+            throws Exception {
 
         // XXX Hack to bypass security
         new UnrestrictedSessionRunner(getRepositoryName()) {
@@ -103,8 +104,8 @@ public class OrbeonResource extends DefaultObject {
                 DocumentModel formDoc = getOrCreateFormDoc(session, app, form, id, true);
 
                 ByteArrayBlob orbeonData = readBody();
-                log.debug("Storing file: " + file);
-                mapOrbeonDataToNuxeoDocument(formDoc, orbeonData, file);
+                log.debug("Storing file: " + file + " on form: " + formDoc);
+                mapOrbeonDataToNuxeoDocument(formDoc, orbeonData, id, file);
                 session.save();
             }
         }.runUnrestricted();
@@ -135,8 +136,8 @@ public class OrbeonResource extends DefaultObject {
                     deleted.set(true);
                 } else {
                     // Remove attachment, if found
-                    Pair<DocumentModel, Boolean> doc = removeAttachment(formDoc, file);
-                    deleted.set(doc.getRight());
+                    boolean removed = removeAttachment(formDoc, id, file);
+                    deleted.set(removed);
                 }
 
                 session.save();
@@ -172,7 +173,8 @@ public class OrbeonResource extends DefaultObject {
             @Override
             public void run() {
 
-                forms = session.query("select * from File where ob:app='" + app + "' and ob:formName='" + form + "'");
+                forms = session.query(
+                        "select * from OrbeonForm where ob:app='" + app + "' and ob:formName='" + form + "'");
                 for (DocumentModel doc : forms) {
                     doc.detach(true);
                 }
@@ -205,72 +207,46 @@ public class OrbeonResource extends DefaultObject {
         return Framework.getService(RepositoryService.class).getRepositoryNames().get(0);
     }
 
-    protected DocumentModel mapOrbeonDataToNuxeoDocument(DocumentModel formDoc, AbstractBlob blob, String filename) {
+    protected DocumentModel mapOrbeonDataToNuxeoDocument(DocumentModel formDoc, AbstractBlob blob, String id,
+            String filename) {
         blob.setFilename(filename);
         if (FORM_XML.equals(filename)) {
             blob.setMimeType("application/xml");
             formDoc.setPropertyValue("file:content", blob);
+            return formDoc.getCoreSession().saveDocument(formDoc);
         } else {
             blob.setMimeType("application/octet-stream");
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> existingBlobs = (List<Map<String, Object>>) formDoc.getPropertyValue(
-                    "files:files");
-            if (existingBlobs == null) {
-                existingBlobs = new ArrayList<>();
-            } else {
-                // Check for duplicate entries
-                for (Map<String, Object> ent : existingBlobs) {
-                    Blob blb = (Blob) ent.get("file");
-                    if (blb.equals(blob)) {
-                        log.warn("Duplicate data item: " + filename);
-                        return formDoc;
-                    }
-                }
-            }
-            Map<String, Object> map = new HashMap<>();
-            map.put("file", blob);
-            existingBlobs.add(map);
-            formDoc.setPropertyValue("files:files", (Serializable) existingBlobs);
-        }
-
-        return formDoc.getCoreSession().saveDocument(formDoc);
-    }
-
-    protected Pair<DocumentModel, Boolean> removeAttachment(DocumentModel formDoc, String filename) {
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> existingBlobs = (List<Map<String, Object>>) formDoc.getPropertyValue("files:files");
-        Iterator<Map<String, Object>> entries = existingBlobs.iterator();
-        boolean changed = false;
-        while (entries.hasNext()) {
-            Map<String, Object> ent = entries.next();
-            Blob blb = (Blob) ent.get("file");
-            if (blb.getFilename().equals(filename)) {
-                log.warn("Removed data item: " + filename);
-                entries.remove();
-                changed = true;
+            try {
+                DocumentModel child = getOrCreateFormAttachment(formDoc, id, filename, true);
+                child.setPropertyValue("file:content", blob);
+                return formDoc.getCoreSession().saveDocument(child);
+            } catch (Exception ex) {
+                log.error("Error saving attachment", ex);
+                return null;
             }
         }
-        if (changed) {
-            formDoc.setPropertyValue("files:files", (Serializable) existingBlobs);
-            formDoc = formDoc.getCoreSession().saveDocument(formDoc);
-        }
-        return Pair.of(formDoc, changed);
     }
 
-    protected Blob mapNuxeoDocumentToOrbeonData(DocumentModel formDoc, String filename) {
+    protected boolean removeAttachment(DocumentModel formDoc, String id, String filename) {
+        DocumentModel child = getOrCreateFormAttachment(formDoc, id, filename, false);
+        if (child != null) {
+            formDoc.getCoreSession().removeDocument(child.getRef());
+            return true;
+        }
+        return false;
+    }
+
+    protected Blob mapNuxeoDocumentToOrbeonData(DocumentModel formDoc, String id, String filename) {
+        Blob blob = null;
         if (FORM_XML.equals(filename)) {
-            Blob blob = (Blob) formDoc.getPropertyValue("file:content");
-            return blob;
-        }
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> existingBlobs = (List<Map<String, Object>>) formDoc.getPropertyValue("files:files");
-        for (Map<String, Object> map : existingBlobs) {
-            Blob bin = (Blob) map.get("file");
-            if (filename.equals(bin.getFilename())) {
-                return bin;
+            blob = (Blob) formDoc.getPropertyValue("file:content");
+        } else {
+            DocumentModel child = getOrCreateFormAttachment(formDoc, id, filename, false);
+            if (child != null) {
+                blob = (Blob) child.getPropertyValue("file:content");
             }
         }
-        return null;
+        return blob;
     }
 
     protected DocumentModel getOrCreateAppRoot(CoreSession session, String app, boolean create) {
@@ -326,12 +302,30 @@ public class OrbeonResource extends DefaultObject {
         DocumentRef ref = new PathRef(formFolder.getPathAsString() + "/" + id);
         if (!session.exists(ref)) {
             if (create) {
-                DocumentModel doc = session.createDocumentModel(formFolder.getPathAsString(), id, "File");
-                doc.setPropertyValue("dc:title", "Orbeon Folder:" + id);
-                doc.addFacet("orbeon");
+                DocumentModel doc = session.createDocumentModel(formFolder.getPathAsString(), id, "OrbeonForm");
+                doc.setPropertyValue("dc:title", "Orbeon Form: " + id);
                 doc.setPropertyValue("ob:app", app);
                 doc.setPropertyValue("ob:formName", form);
                 doc.setPropertyValue("ob:formId", id);
+                session.createDocument(doc);
+                session.save();
+            } else {
+                return null;
+            }
+        }
+
+        return session.getDocument(ref);
+    }
+
+    protected DocumentModel getOrCreateFormAttachment(DocumentModel formFolder, String id, String filename,
+            boolean create) {
+
+        CoreSession session = formFolder.getCoreSession();
+        DocumentRef ref = new PathRef(formFolder.getPathAsString() + "/" + filename);
+        if (!session.exists(ref)) {
+            if (create) {
+                DocumentModel doc = session.createDocumentModel(formFolder.getPathAsString(), filename, "File");
+                doc.setPropertyValue("dc:title", filename);
                 session.createDocument(doc);
                 session.save();
             } else {

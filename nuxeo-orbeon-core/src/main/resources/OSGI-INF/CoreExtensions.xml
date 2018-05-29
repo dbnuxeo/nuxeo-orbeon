@@ -14,7 +14,10 @@
 		<facet name="orbeon">
 			<schema name="orbeon" />
 		</facet>
-
+    <doctype extends="Folder" name="OrbeonForm">
+        <schema name="file"/>
+        <facet name="orbeon"/>
+    </doctype>
 	</extension>
 
 </component>
