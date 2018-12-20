@@ -21,7 +21,7 @@ import org.nuxeo.ecm.restapi.test.RestServerFeature;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-import org.nuxeo.runtime.test.runner.Jetty;
+import org.nuxeo.runtime.test.runner.ServletContainer;
 
 import com.google.inject.Inject;
 import com.sun.jersey.api.client.ClientResponse;
@@ -30,7 +30,7 @@ import com.sun.jersey.api.client.WebResource;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class, PlatformFeature.class })
 @Deploy({ "nuxeo.orbeon.core", "nuxeo.orbeon.rest" })
-@Jetty(port = 18090)
+@ServletContainer(port = 18090)
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
 public class OrbeonResourceTest extends BaseTest {
 
