@@ -21,7 +21,6 @@ import org.nuxeo.ecm.restapi.test.RestServerFeature;
 import org.nuxeo.runtime.test.runner.Deploy;
 import org.nuxeo.runtime.test.runner.Features;
 import org.nuxeo.runtime.test.runner.FeaturesRunner;
-import org.nuxeo.runtime.test.runner.ServletContainer;
 
 import com.google.inject.Inject;
 import com.sun.jersey.api.client.ClientResponse;
@@ -30,7 +29,6 @@ import com.sun.jersey.api.client.WebResource;
 @RunWith(FeaturesRunner.class)
 @Features({ RestServerFeature.class, PlatformFeature.class })
 @Deploy({ "nuxeo.orbeon.core", "nuxeo.orbeon.rest" })
-@ServletContainer(port = 18090)
 @RepositoryConfig(cleanup = Granularity.METHOD, init = RestServerInit.class)
 public class OrbeonResourceTest extends BaseTest {
 
@@ -42,7 +40,7 @@ public class OrbeonResourceTest extends BaseTest {
     @Test
     public void shouldCreateAndReadForm() throws Exception {
 
-        resource = getServiceFor(REST_API_URL, "Administrator", "Administrator");
+        resource = getServiceFor(getRestApiUrl(), "Administrator", "Administrator");
 
         final String obXML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><form xmlns:fr=\"http://orbeon.org/oxf/xml/form-runner\" fr:data-format-version=\"4.0.0\">\n"
                 + "                    <dublincore-section>\n" + "                        <title>test</title>\n"
@@ -106,7 +104,8 @@ public class OrbeonResourceTest extends BaseTest {
         assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
         session.save();
 
-        response = resource.path("orbeon/crud/Nuxeo/SimpleForm/data/f53a2d0041e53f4ebef826c7341d7c500d26e77b/1b2e9188de34af6e52105acc568235831ff60265.bin")
+        response = resource.path(
+                "orbeon/crud/Nuxeo/SimpleForm/data/f53a2d0041e53f4ebef826c7341d7c500d26e77b/1b2e9188de34af6e52105acc568235831ff60265.bin")
                            .get(ClientResponse.class);
         assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
 
@@ -125,7 +124,7 @@ public class OrbeonResourceTest extends BaseTest {
     @Test
     public void shouldCreateAndSearchForm() throws Exception {
 
-        resource = getServiceFor(REST_API_URL, "Administrator", "Administrator");
+        resource = getServiceFor(getRestApiUrl(), "Administrator", "Administrator");
 
         final String obXML = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><form xmlns:fr=\"http://orbeon.org/oxf/xml/form-runner\" fr:data-format-version=\"4.0.0\">\n"
                 + "                    <dublincore-section>\n" + "                        <title>test</title>\n"
@@ -133,8 +132,9 @@ public class OrbeonResourceTest extends BaseTest {
                 + "                    </dublincore-section>\n" + "                    <Note-section>\n"
                 + "                        <note>etetet</note>\n" + "                    </Note-section>\n" + "</form>";
 
-        ClientResponse response = resource.path("orbeon/crud/Nuxeo/SimpleForm2/data/new-id/data.xml").entity(obXML).put(
-                ClientResponse.class);
+        ClientResponse response = resource.path("orbeon/crud/Nuxeo/SimpleForm2/data/new-id/data.xml")
+                                          .entity(obXML)
+                                          .put(ClientResponse.class);
 
         assertEquals(Response.Status.CREATED.getStatusCode(), response.getStatus());
         session.save();
